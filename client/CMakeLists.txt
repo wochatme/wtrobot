@@ -29,7 +29,7 @@ endif()
 
 if (WITH_STATIC_LIBRARIES)
 	target_link_libraries(mosquitto_pub libmosquitto_static)
-	target_link_libraries(wtrobot libmosquitto_static)
+	target_link_libraries(wtrobot libmosquitto_static pthread dl)
 endif()
 
 if (QNX)

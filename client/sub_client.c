@@ -37,6 +37,7 @@ Contributors:
 #include <mqtt_protocol.h>
 #include "client_shared.h"
 #include "sub_client_output.h"
+#include "sqlite3.h"
 
 struct mosq_config cfg;
 bool process_messages = true;
@@ -316,12 +317,42 @@ static void print_usage(void)
 	printf("\nSee https://mosquitto.org/ for more information.\n\n");
 }
 
+static int CheckDatabase()
+{
+	int rc;
+	sqlite3 *db;
+
+	rc = sqlite3_open_v2("wochat.db", &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL);
+
+	if (rc == SQLITE_OK) 
+	{
+		sqlite3_stmt* stmt = NULL;
+		rc = sqlite3_prepare_v2(db, (const char*)"SELECT count(1) FROM p", -1, &stmt, NULL); 
+		if (SQLITE_OK != rc)
+		{
+			rc = sqlite3_prepare_v2(db,	
+				(const char*)"CREATE TABLE p(id INTEGER PRIMARY KEY AUTOINCREMENT,dt INTEGER,vv INTEGER,pk CHAR(66) NOT NULL UNIQUE,us BLOB)", 
+				-1, &stmt, NULL);
+			if (SQLITE_OK == rc)
+			{
+				sqlite3_step(stmt);
+			}
+			sqlite3_finalize(stmt);
+		}
+	}
+	sqlite3_close(db);
+	return 0;
+}
+
 int main(int argc, char *argv[])
 {
 	int rc;
 #ifndef WIN32
 		struct sigaction sigact;
 #endif
+
+    signal(SIGCHLD, SIG_IGN);
+    CheckDatabase();
 
 	mosquitto_lib_init();
 
