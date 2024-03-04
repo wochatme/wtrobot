@@ -22,10 +22,9 @@ link_directories(${CLIENT_DIR})
 add_executable(mosquitto_pub pub_client.c pub_shared.c ${shared_src})
 add_executable(wtrobot sub_client.c sub_client_output.c sqlite3.c ${shared_src})
 
-if (CJSON_FOUND)
-	target_link_libraries(mosquitto_pub ${CJSON_LIBRARIES})
-	target_link_libraries(wtrobot ${CJSON_LIBRARIES})
-endif()
+target_link_libraries(wtrobot secp256k1)
+target_link_libraries(wtrobot mbedcrypto)
+target_link_libraries(wtrobot curl)
 
 if (WITH_STATIC_LIBRARIES)
 	target_link_libraries(mosquitto_pub libmosquitto_static)

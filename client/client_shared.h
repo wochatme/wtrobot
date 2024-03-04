@@ -50,6 +50,7 @@ Contributors:
 struct mosq_config {
 	char *id;
 	char *id_prefix;
+	char *dirpath;
 	int protocol_version;
 	int keepalive;
 	char *host;
