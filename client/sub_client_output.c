@@ -1013,7 +1013,6 @@ static char* wt_Process_Q_Message(char* primarykey, char* head, char* pubkey, un
 	}
 	sqlite3_close(db);
 
-	version = 1234;
 	length = 89 + 140;
 	message_b64 = malloc(length);
 	if(message_b64)
@@ -1067,7 +1066,12 @@ static unsigned char wt_SecretKey [32] = {
 	0x00,0xA9,0x7C,0xC9,0xB8,0x0F,0x29,0x89
 };
 
-static char* wt_GetRobtResponse(char* message, unsigned int length, U32* output_len, U8* stype)
+static char* wt_Process_T_Message(char* primarykey, char* head, U8* message, U8 length, unsigned int* output_len)
+{
+	return NULL;
+}
+
+static char* wt_GetRobotResponse(char* message, unsigned int length, U32* output_len, U8* stype)
 {
 	U8 Kp[32];
 	U8 Ks[32];
@@ -1139,7 +1143,73 @@ static char* wt_GetRobtResponse(char* message, unsigned int length, U32* output_
 			}
 		}
 	}
-		
+	else if(message[88] == '@' && length >= 521)
+	{
+		U8 hash0[32];
+		U8 hash1[32];
+		U32 length_raw = wt_b64_dec_len(length - 89);
+		U8* message_raw = (U8*)malloc(length_raw);
+		if (message_raw)
+		{
+			int real_length = wt_b64_decode((const char*)(message + 89), length - 89, (char*)message_raw, length_raw);
+			if(real_length > 0)
+			{
+				wt_AES256_init(&ctxAES, Kp);
+				wt_AES256_decrypt(&ctxAES, 2, Ks, message_raw); // get the session key at first
+				mbedtls_chacha20_init(&chacha_ctx);
+				mbedtls_chacha20_setkey(&chacha_ctx, Ks);
+				mbedtls_chacha20_starts(&chacha_ctx, nonce, 0);
+				mbedtls_chacha20_update(&chacha_ctx, real_length - 32, (const unsigned char *)(message_raw+32), message_raw+32);
+				mbedtls_chacha20_free(&chacha_ctx);
+
+				U32 crc32Hash = wt_GenCRC32(message_raw + 32, 32);
+				U8* p = (U8*)&crc32Hash;
+				for(U8 i = 0; i < 12; i++) message_raw[64 + i] ^= p[i % 4];
+				U8 vs  = message_raw[64];
+				U8 tp  = message_raw[65];
+				U8 idx = message_raw[66];
+				U8 rs  = message_raw[67];
+				U32 lenX = *((U32*)(message_raw + 32 + 32 + 4));
+				
+				U32 crc32 = wt_GenCRC32(message, 89);
+				if(memcmp(&crc32, message_raw + 32 + 32 + 4 + 4, 4) == 0)
+				{
+					wt_AES256_decrypt(&ctxAES, 2, hash0, message_raw + 32);
+					mbedtls_sha256_context ctx = { 0 };
+					mbedtls_sha256_init(&ctx);
+					mbedtls_sha256_starts_ret(&ctx, 0);
+					mbedtls_sha256_update_ret(&ctx, message_raw + 76 + idx, lenX);
+					mbedtls_sha256_finish_ret(&ctx, hash1);
+					if(memcmp(hash0, hash1, 32) == 0)
+					{
+						//fprintf(stdout, "Really go000000od! %d - %d - %d - %d(%u)!\n", vs, tp, idx, rs, lenX);
+						// now we are pretty confirm this message is good
+						switch(tp)
+						{
+						case 'T':
+							resonse_length = 0;
+							response_message = wt_Process_T_Message(Kp, message, message_raw + 76 + idx, lenX, &resonse_length);
+							if(response_message && resonse_length)
+							{
+								if(output_len) *output_len = resonse_length;
+								if(stype) *stype = 'F';
+								free(message_raw);
+								return response_message;
+							}
+							break;
+						case 'U':
+							break;
+						default:
+							break;
+						}
+					}
+
+				}
+			}
+			free(message_raw);
+		}
+	}
+
 	return NULL;
 }
 
@@ -1157,7 +1227,7 @@ static void wt_ProcessMessage(struct mosq_config *cfg, char* message, unsigned i
 	wt_b64_decode(message, 44, pks, 33);	
 	wt_Raw2HexString(pks, 33, topic, NULL);
 
-	b64_msg = wt_GetRobtResponse(message, len, &b64_len, &sendType);
+	b64_msg = wt_GetRobotResponse(message, len, &b64_len, &sendType);
 	if(b64_msg && b64_len > 0)
 	{
 		if(sendType == 'M')
