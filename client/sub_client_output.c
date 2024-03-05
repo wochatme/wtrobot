@@ -978,6 +978,59 @@ static U32 wt_GenCRC32(const U8* s, U32 len)
 	return crc32val;
 }
 
+#define WT_NAME_MAX_LEN		64
+#define WT_MOTTO_MAX_LEN	128
+#define WT_AREA_MAX_LEN		64
+#define WT_LARGE_ICON_SIZE	(128 * 128 * 4)
+
+static char* wt_Process_A_Message(char* primarykey, char* head, char* pubkey, unsigned int* output_len)
+{
+	bool bFound = false;
+	U8* msg_raw;
+	U32 len_raw = 0;
+	char* msg_b64 = NULL;
+	U32  len_b64 = 0;
+	U32  crc32;
+	sqlite3 *db;
+	U8 hexPK[67] = { 0 };
+
+	wt_Raw2HexString(pubkey, 33, hexPK, NULL);
+
+	int rc = sqlite3_open_v2("wochat.db", &db, SQLITE_OPEN_READONLY, NULL);
+	if (rc == SQLITE_OK) 
+	{
+		sqlite3_stmt* stmt = NULL;
+		char sql[128] = { 0 };
+		sprintf(sql, "SELECT vv,us FROM p WHERE pk='%s'",	hexPK);
+		fprintf(stdout, "DB is opened!:%s\n", sql);
+		rc = sqlite3_prepare_v2(db, (const char*)sql, -1, &stmt, NULL); 
+		if (rc == SQLITE_OK)
+		{
+			fprintf(stdout, "sqlite3_prepare_v2 : %d\n", rc);
+			rc = sqlite3_step(stmt);
+			if (rc == SQLITE_ROW)  // we find this record in the backend database, so we will send to the user
+			{
+				U32 version  = (U32)sqlite3_column_int(stmt, 0);
+				U8* blob     = (U8*)sqlite3_column_blob(stmt, 1);
+				U32 blob_len = (U32)sqlite3_column_bytes(stmt, 1);
+				
+				fprintf(stdout, "Get PK: %d / %u - %s\n", rc, blob_len, hexPK);
+
+				if(blob_len == 3 + 1 + 4 + WT_NAME_MAX_LEN + WT_MOTTO_MAX_LEN + WT_AREA_MAX_LEN + WT_LARGE_ICON_SIZE)
+				{
+				}
+			}
+			else fprintf(stdout, "No PK: %d - %s\n", rc, hexPK); 
+			sqlite3_finalize(stmt);
+		}
+		else fprintf(stdout, "sqlite3_prepare_v2 : %d\n", rc);
+		sqlite3_close(db);
+	}
+	else fprintf(stdout, "DB is NOT opened!\n");
+
+	return msg_b64;
+}
+
 static char* wt_Process_Q_Message(char* primarykey, char* head, char* pubkey, unsigned int* output_len)
 {
 	U32 i, length, crc32, version = 0;
@@ -1280,6 +1333,7 @@ static char* wt_GetRobotResponse(char* message, unsigned int length, U32* output
 		U8 msg_raw[32 + 1 + 33 + 4 + 32] = { 0 };
 		U8 msg_len = 32 + 1 + 33 + 4 + 32;
 
+		fprintf(stdout, "Get A or Q Message...................\n");
 		if(wt_b64_decode(message + 89, 136, msg_raw, msg_len) == msg_len)
 		{
 			U8 hash0[32];
@@ -1311,6 +1365,20 @@ static char* wt_GetRobotResponse(char* message, unsigned int length, U32* output
 					response_message = wt_Process_Q_Message(Kp, message, msg_raw + 33, &resonse_length);
 					if(output_len) *output_len = resonse_length;
 					if(stype) *stype = 'M';
+					return response_message;
+				}
+			}
+
+			if(msg_raw[32] == 'A' && (msg_raw[33] == 0x02 || msg_raw[33] == 0x03))
+			{
+				fprintf(stdout, "Get A Message and CRC32 and hash are good!\n");
+				U32 crc32 = wt_GenCRC32(message, 89);
+				if(memcmp(&crc32, msg_raw + 32 + 1 + 33, 4) == 0 && memcmp(hash0, hash1, 32) == 0)
+				{
+					resonse_length = 0;
+					response_message = wt_Process_A_Message(Kp, message, msg_raw + 33, &resonse_length);
+					if(output_len) *output_len = resonse_length;
+					if(stype) *stype = 'F';
 					return response_message;
 				}
 			}
@@ -1431,7 +1499,7 @@ static void wt_ProcessMessage(struct mosq_config *cfg, char* message, unsigned i
 
 		if(sendType == 'M')
 		{
-			sprintf(send_cmd, "mosquitto_pub -h %s -p %d -t %s -m \"%s\"",cfg->host, port, topic, b64_msg);
+			sprintf(send_cmd, "mosquitto_pub -q 1 -h %s -p %d -t %s -m \"%s\"",cfg->host, port, topic, b64_msg);
 			//fprintf(stdout, "mosquitto_pub -h %s -p %d -t %s -m \"%s\"",cfg->host, port, topic, b64_msg);
 			system(send_cmd);
 		}
@@ -1460,7 +1528,7 @@ static void wt_ProcessMessage(struct mosq_config *cfg, char* message, unsigned i
 				bool bRet = false;
 				if(EOF != fputs((const char*)b64_msg, fp))
 				{
-					sprintf(send_cmd, "mosquitto_pub -h %s -p %d -t %s -f %s",cfg->host, port, topic, filename);
+					sprintf(send_cmd, "mosquitto_pub -q 1 -h %s -p %d -t %s -f %s",cfg->host, port, topic, filename);
 					bRet = true;
 					//fprintf(stdout, "mosquitto_pub -h %s -p %d -t %s -f %s\n",cfg->host, port, topic, filename);
 				}

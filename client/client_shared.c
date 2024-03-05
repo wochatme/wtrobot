@@ -663,8 +663,7 @@ int client_config_line_proc(struct mosq_config *cfg, int pub_or_sub, int argc, c
 					cfg->dirpath = strdup(argv[i+1]);
 			}
 			i++;
-		}
-		else if(!strcmp(argv[i], "--help")){
+		} else if(!strcmp(argv[i], "--help")){
 			return 2;
 		}else if(!strcmp(argv[i], "-h") || !strcmp(argv[i], "--host")){
 			if(i==argc-1){

@@ -339,8 +339,14 @@ static int CheckDatabase()
 			}
 			sqlite3_finalize(stmt);
 		}
+		sqlite3_close(db);
 	}
-	sqlite3_close(db);
+	else
+	{
+		fprintf(stderr, "Cannot open or create wochat.db!\n");
+		exit(1);
+	}
+	
 	return 0;
 }
 
