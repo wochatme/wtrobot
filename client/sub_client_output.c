@@ -1066,9 +1066,90 @@ static unsigned char wt_SecretKey [32] = {
 	0x00,0xA9,0x7C,0xC9,0xB8,0x0F,0x29,0x89
 };
 
+#define UT_MIN_PACKET_SIZE	248
+
 static char* wt_Process_T_Message(char* primarykey, char* head, U8* message, U8 length, unsigned int* output_len)
 {
-	return NULL;
+	U32 i, crc32, length_b64;
+	char* msssage_b64 = NULL;
+	char* msg_raw = NULL;
+	U8 offset = 0;
+	U32 len_org = length + 10;
+	U32 length_raw;
+	U8 newhead[89];
+
+	for(i=0; i<44; i++) newhead[i] = head[44 + i];
+	for(i=0; i<44; i++) newhead[44 + i] = head[i];
+	newhead[88] = '@';
+	crc32 = wt_GenCRC32(newhead, 89);
+
+	if(len_org < UT_MIN_PACKET_SIZE)
+	{
+		length_raw = UT_MIN_PACKET_SIZE + 76;
+		offset = (U8)(UT_MIN_PACKET_SIZE - len_org);
+	}
+	else
+	{
+		offset = 0;
+		length_raw = len_org + 76; // if the message is equal or more than 248 bytes, we do not make random data
+	}
+
+	msg_raw = malloc(length_raw);
+	if(msg_raw)
+	{
+		U8 i, idx = 0;
+		mbedtls_chacha20_context chacha_ctx = { 0 };
+		mbedtls_sha256_context ctx = { 0 };
+		AES256_ctx ctxAES = { 0 };
+		U8 hash[32] = { 0 };
+		U8 Ks[32] = { 0 };
+		U8 mask[8] = { 0 };
+		U8 nonce[12] = { 0 };
+		
+		wt_GenerateRandomeData(msg_raw + 76, length_raw - 76); // fill the random data
+
+		U8* p = msg_raw + 76 + 4;
+		p[0] = 0xE5; p[1] = 0xB7; p[2] = 0xB2; p[3] = 0xE8; p[4] = 0x8E; 
+		p[5] = 0xB7; p[6] = 0xE6; p[7] = 0x82; p[8] = 0x89; p[9] = '\n'; 
+		p += 10;
+		memcpy(p, message + 4, length - 4);
+
+		mbedtls_sha256_init(&ctx);
+		mbedtls_sha256_starts_ret(&ctx, 0);
+		mbedtls_sha256_update_ret(&ctx, msg_raw + 76, len_org);
+		mbedtls_sha256_finish_ret(&ctx, hash);
+
+		wt_GenerateRandomeData(Ks, 32);
+		wt_AES256_init(&ctxAES, primarykey);
+		wt_AES256_encrypt(&ctxAES, 2, msg_raw, Ks);
+		wt_AES256_encrypt(&ctxAES, 2, msg_raw + 32, hash);
+
+		U32 crc32Hash = wt_GenCRC32(msg_raw + 32, 32);
+		p = msg_raw;
+		p[64] = 1;	p[65] = 'T'; p[66] = idx; p[67] = 'X';
+		U32* p32 = (U32*)(p + 68); *p32 = len_org;
+		U8* q = (U8*)&crc32; p[72] = q[0]; p[73] = q[1]; p[74] = q[2]; p[75] = q[3];
+
+		q = (U8*)&crc32Hash; for (i = 0; i < 12; i++) p[64 + i] ^= q[i % 4];
+
+		for (i = 0; i < 12; i++) nonce[i] = i;
+		mbedtls_chacha20_init(&chacha_ctx);
+		mbedtls_chacha20_setkey(&chacha_ctx, Ks);
+		mbedtls_chacha20_starts(&chacha_ctx, nonce, 0);
+		mbedtls_chacha20_update(&chacha_ctx, length_raw - 32, (const unsigned char *)(msg_raw+32), msg_raw+32);
+		mbedtls_chacha20_free(&chacha_ctx);
+		
+		length_b64 = wt_b64_enc_len(length_raw);
+		msssage_b64 = malloc(89 + length_b64);
+		if(msssage_b64)
+		{
+			for(i=0; i<89; i++) msssage_b64[i] = newhead[i];
+			wt_b64_encode((const char*)msg_raw, length_raw, (char*)(msssage_b64 + 89), length_b64);
+			if(output_len) *output_len = 89 + length_b64;
+		}
+		free(msg_raw);
+	}
+	return msssage_b64;
 }
 
 static char* wt_GetRobotResponse(char* message, unsigned int length, U32* output_len, U8* stype)
@@ -1126,7 +1207,6 @@ static char* wt_GetRobotResponse(char* message, unsigned int length, U32* output
 			mbedtls_sha256_starts_ret(&ctx, 0);
 			mbedtls_sha256_update_ret(&ctx, msg_raw+32, 1 + 33 + 4);
 			mbedtls_sha256_finish_ret(&ctx, hash1);
-
 
 			if(msg_raw[32] == 'Q' && (msg_raw[33] == 0x02 || msg_raw[33] == 0x03))
 			{
@@ -1203,13 +1283,11 @@ static char* wt_GetRobotResponse(char* message, unsigned int length, U32* output
 							break;
 						}
 					}
-
 				}
 			}
 			free(message_raw);
 		}
 	}
-
 	return NULL;
 }
 
