@@ -1034,9 +1034,9 @@ static char* wt_Process_Q_Message(char* primarykey, char* head, char* pubkey, un
 		p = (U8*)&crc32;   for(i=0; i<4; i++) msg[32 + 33 + 4 + i] = p[i];
 
 		mbedtls_sha256_init(&ctx);
-		mbedtls_sha256_starts_ret(&ctx, 0);
-		mbedtls_sha256_update_ret(&ctx, msg+32, 33 + 4 + 4);
-		mbedtls_sha256_finish_ret(&ctx, hash);
+		mbedtls_sha256_starts(&ctx, 0);
+		mbedtls_sha256_update(&ctx, msg+32, 33 + 4 + 4);
+		mbedtls_sha256_finish(&ctx, hash);
 		wt_AES256_encrypt(&ctxAES, 2, msg+32+33+4+4, hash);
 
 		for (i = 0; i < 12; i++) nonce[i] = i;
@@ -1066,9 +1066,100 @@ static unsigned char wt_SecretKey [32] = {
 	0x00,0xA9,0x7C,0xC9,0xB8,0x0F,0x29,0x89
 };
 
-#define UT_MIN_PACKET_SIZE	248
+static unsigned int g_count = 0;
 
-static char* wt_Process_T_Message(char* primarykey, char* head, U8* message, U8 length, unsigned int* output_len)
+static char* wt_Process_U_Message(char* primarykey, char* head, U8* message, U8 length, unsigned int* output_len)
+{
+	int i;
+	bool beGood = false;
+	sqlite3 *db;
+	char* message_b64 = NULL;
+	U32 length_b64 = 89 + 140;
+	U8* p;
+	U8 newhead[89];
+
+	for(i=0; i<44; i++) newhead[i] = head[44 + i];
+	for(i=0; i<44; i++) newhead[44 + i] = head[i];
+	newhead[88] = '#';
+	U32 crc32 = wt_GenCRC32(newhead, 89);
+
+	int rc = sqlite3_open_v2("wochat.db", &db, SQLITE_OPEN_READWRITE, NULL);
+	if (rc == SQLITE_OK)
+	{
+		sqlite3_stmt* stmt = NULL;
+		char sql[128] = { 0 };
+		U8 hexPK[67] = { 0 };
+		U32 version = *((U32*)message);
+		wt_Raw2HexString(message+4, 33, hexPK, NULL);
+
+		p = message + 4 + 33;
+		U32 blob_len = length - 4 - 33;
+		sprintf(sql, "INSERT INTO p(vv,pk,us) VALUES(%u,'%s',(?))",	version, hexPK);
+		//fprintf(stdout, "SQL: %s\n", sql);
+		rc = sqlite3_prepare_v2(db, (const char*)sql, -1, &stmt, NULL); 
+		if(rc == SQLITE_OK)
+		{
+			rc = sqlite3_bind_blob(stmt, 1, p, blob_len, SQLITE_TRANSIENT);
+			if(rc == SQLITE_OK)
+			{
+				rc = sqlite3_step(stmt);
+				if(rc == SQLITE_DONE)
+				{
+					beGood = true;
+				}
+			}
+			sqlite3_finalize(stmt);
+		}
+		sqlite3_close(db);
+	}
+
+	
+	if(beGood)
+	{
+		length_b64 = 89 + 140;
+		message_b64 = (char*)malloc(length_b64);
+		if(message_b64)
+		{
+			U8 Ks[32];
+			U8 hash[32];
+			U8 msg[32+33+4+4+32];
+			U8 nonce[12] = { 0 };
+			AES256_ctx ctxAES = { 0 };
+			mbedtls_chacha20_context chacha_ctx = { 0 };
+			mbedtls_sha256_context ctx = { 0 };
+
+			wt_GenerateRandomeData(Ks, 32);
+			wt_AES256_init(&ctxAES, primarykey);
+			wt_AES256_encrypt(&ctxAES, 2, msg, Ks);
+
+			memcpy(msg + 32, message+4, 33);
+
+			for(i=0; i<4; i++) msg[32 + 33 + i] = message[i];
+			p = (U8*)&crc32;   for(i=0; i<4; i++) msg[32 + 33 + 4 + i] = p[i];
+
+			mbedtls_sha256_init(&ctx);
+			mbedtls_sha256_starts(&ctx, 0);
+			mbedtls_sha256_update(&ctx, msg+32, 33 + 4 + 4);
+			mbedtls_sha256_finish(&ctx, hash);
+			wt_AES256_encrypt(&ctxAES, 2, msg+32+33+4+4, hash);
+
+			for (i = 0; i < 12; i++) nonce[i] = i;
+			mbedtls_chacha20_init(&chacha_ctx);
+			mbedtls_chacha20_setkey(&chacha_ctx, Ks);
+			mbedtls_chacha20_starts(&chacha_ctx, nonce, 0);
+			mbedtls_chacha20_update(&chacha_ctx, 33 + 4 + 4 + 32, (const unsigned char *)(msg+32), msg+32);
+			mbedtls_chacha20_free(&chacha_ctx);
+			
+			for(i=0; i<89; i++) message_b64[i] = newhead[i];
+			wt_b64_encode(msg, 32+33+4+4+32, message_b64 + 89, 140);
+			if(output_len) *output_len = length_b64;
+		}
+	}
+	return message_b64;
+}
+
+#define UT_MIN_PACKET_SIZE	248
+static char* wt_Process_T_Message(char* primarykey, char* head, U8* message, U32 length, unsigned int* output_len)
 {
 	U32 i, crc32, length_b64;
 	char* msssage_b64 = NULL;
@@ -1083,16 +1174,18 @@ static char* wt_Process_T_Message(char* primarykey, char* head, U8* message, U8 
 	newhead[88] = '@';
 	crc32 = wt_GenCRC32(newhead, 89);
 
-	if(len_org < UT_MIN_PACKET_SIZE)
+	if(len_org < 248)
 	{
-		length_raw = UT_MIN_PACKET_SIZE + 76;
-		offset = (U8)(UT_MIN_PACKET_SIZE - len_org);
+		length_raw = 248 + 76;
+		offset = (U8)(248 - len_org);
 	}
 	else
 	{
 		offset = 0;
 		length_raw = len_org + 76; // if the message is equal or more than 248 bytes, we do not make random data
 	}
+	
+	//fprintf(stdout, "LEN org len: %u - %u\n", len_org, length_raw);
 
 	msg_raw = malloc(length_raw);
 	if(msg_raw)
@@ -1115,9 +1208,9 @@ static char* wt_Process_T_Message(char* primarykey, char* head, U8* message, U8 
 		memcpy(p, message + 4, length - 4);
 
 		mbedtls_sha256_init(&ctx);
-		mbedtls_sha256_starts_ret(&ctx, 0);
-		mbedtls_sha256_update_ret(&ctx, msg_raw + 76, len_org);
-		mbedtls_sha256_finish_ret(&ctx, hash);
+		mbedtls_sha256_starts(&ctx, 0);
+		mbedtls_sha256_update(&ctx, msg_raw + 76, len_org);
+		mbedtls_sha256_finish(&ctx, hash);
 
 		wt_GenerateRandomeData(Ks, 32);
 		wt_AES256_init(&ctxAES, primarykey);
@@ -1204,9 +1297,9 @@ static char* wt_GetRobotResponse(char* message, unsigned int length, U32* output
 
 			mbedtls_sha256_context ctx = { 0 };
 			mbedtls_sha256_init(&ctx);
-			mbedtls_sha256_starts_ret(&ctx, 0);
-			mbedtls_sha256_update_ret(&ctx, msg_raw+32, 1 + 33 + 4);
-			mbedtls_sha256_finish_ret(&ctx, hash1);
+			mbedtls_sha256_starts(&ctx, 0);
+			mbedtls_sha256_update(&ctx, msg_raw+32, 1 + 33 + 4);
+			mbedtls_sha256_finish(&ctx, hash1);
 
 			if(msg_raw[32] == 'Q' && (msg_raw[33] == 0x02 || msg_raw[33] == 0x03))
 			{
@@ -1257,27 +1350,46 @@ static char* wt_GetRobotResponse(char* message, unsigned int length, U32* output
 					wt_AES256_decrypt(&ctxAES, 2, hash0, message_raw + 32);
 					mbedtls_sha256_context ctx = { 0 };
 					mbedtls_sha256_init(&ctx);
-					mbedtls_sha256_starts_ret(&ctx, 0);
-					mbedtls_sha256_update_ret(&ctx, message_raw + 76 + idx, lenX);
-					mbedtls_sha256_finish_ret(&ctx, hash1);
+					mbedtls_sha256_starts(&ctx, 0);
+					mbedtls_sha256_update(&ctx, message_raw + 76 + idx, lenX);
+					mbedtls_sha256_finish(&ctx, hash1);
 					if(memcmp(hash0, hash1, 32) == 0)
 					{
-						//fprintf(stdout, "Really go000000od! %d - %d - %d - %d(%u)!\n", vs, tp, idx, rs, lenX);
+						//fprintf(stdout, "TU: %d - %d - %d - %d(%u)!\n", vs, tp, idx, rs, lenX);
 						// now we are pretty confirm this message is good
 						switch(tp)
 						{
 						case 'T':
 							resonse_length = 0;
 							response_message = wt_Process_T_Message(Kp, message, message_raw + 76 + idx, lenX, &resonse_length);
+
 							if(response_message && resonse_length)
 							{
+								//fprintf(stdout, "T: generated %u bytes\n", resonse_length);
 								if(output_len) *output_len = resonse_length;
 								if(stype) *stype = 'F';
 								free(message_raw);
 								return response_message;
 							}
+							else
+							{
+								//fprintf(stdout, "NULL T: generated %u bytes\n", resonse_length);
+							}
 							break;
 						case 'U':
+							//fprintf(stdout, "Get U Info %d \n", lenX);
+							if(lenX == 65837)
+							{
+								resonse_length = 0;
+								response_message = wt_Process_U_Message(Kp, message, message_raw + 76 + idx, lenX, &resonse_length);
+								if(response_message && resonse_length)
+								{
+									if(output_len) *output_len = resonse_length;
+									if(stype) *stype = 'M';
+									free(message_raw);
+									return response_message;
+								}
+							}
 							break;
 						default:
 							break;
@@ -1308,6 +1420,15 @@ static void wt_ProcessMessage(struct mosq_config *cfg, char* message, unsigned i
 	b64_msg = wt_GetRobotResponse(message, len, &b64_len, &sendType);
 	if(b64_msg && b64_len > 0)
 	{
+		FILE* fp = fopen("mqtt.txt", "a");
+		if(fp)
+		{
+			char head[90] = {0};
+			for(int i=0; i<89; i++) head[i] = b64_msg[i];
+			fprintf(fp, "        SET(%8d): %s\n", (int)b64_len, head);
+			fclose(fp);
+		}
+
 		if(sendType == 'M')
 		{
 			sprintf(send_cmd, "mosquitto_pub -h %s -p %d -t %s -m \"%s\"",cfg->host, port, topic, b64_msg);
@@ -1323,9 +1444,9 @@ static void wt_ProcessMessage(struct mosq_config *cfg, char* message, unsigned i
 
 			mbedtls_sha256_context ctx = { 0 };
 			mbedtls_sha256_init(&ctx);
-			mbedtls_sha256_starts_ret(&ctx, 0);
-			mbedtls_sha256_update_ret(&ctx, b64_msg, b64_len);
-			mbedtls_sha256_finish_ret(&ctx, hash);
+			mbedtls_sha256_starts(&ctx, 0);
+			mbedtls_sha256_update(&ctx, b64_msg, b64_len);
+			mbedtls_sha256_finish(&ctx, hash);
 			wt_Raw2HexString(hash, 32, hexHash, NULL);
 
 			if(cfg->dirpath)
@@ -1358,7 +1479,6 @@ void print_message(struct mosq_config *lcfg, const struct mosquitto_message *mes
 	char* msg = (char*)message->payload;
 	unsigned int msg_len = (unsigned int)message->payloadlen;
 
-	//fprintf(stdout, "Get %s (%d) bytes\n", msg, message->payloadlen);
 	if(msg && msg_len >= 225)
 	{
 		char pks[33];
@@ -1368,7 +1488,17 @@ void print_message(struct mosq_config *lcfg, const struct mosquitto_message *mes
 
 		if(33 == r0 && 33 == r1)
 		{
-			char* buf = malloc(msg_len);
+			char* buf = NULL;
+			FILE* fp = fopen("mqtt.txt", "a");
+			if(fp)
+			{
+				char head[90] = {0};
+				for(int i=0; i<89; i++) head[i] = msg[i];
+				fprintf(fp, "[%6d]GET(%8d): %s\n", (int)g_count++, (int)msg_len, head);
+				fclose(fp);
+			}
+
+			buf = malloc(msg_len);
 			if(buf)
 			{
 				pid_t pid;

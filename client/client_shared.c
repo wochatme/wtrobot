@@ -651,7 +651,20 @@ int client_config_line_proc(struct mosq_config *cfg, int pub_or_sub, int argc, c
 				}
 			}
 			i++;
-		}else if(!strcmp(argv[i], "--help")){
+		}else if(!strcmp(argv[i], "-Z")){
+			if(i==argc-1){
+				fprintf(stderr, "Error: -Z argument given but no path specified.\n\n");
+				return 1;
+			}else{
+				#if 0
+				fprintf(stdout, "PATH is: %s\n", argv[i+1]);
+				#endif 
+				if(!cfg->dirpath)
+					cfg->dirpath = strdup(argv[i+1]);
+			}
+			i++;
+		}
+		else if(!strcmp(argv[i], "--help")){
 			return 2;
 		}else if(!strcmp(argv[i], "-h") || !strcmp(argv[i], "--host")){
 			if(i==argc-1){
