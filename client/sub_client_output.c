@@ -985,12 +985,8 @@ static U32 wt_GenCRC32(const U8* s, U32 len)
 
 static char* wt_Process_A_Message(char* primarykey, char* head, char* pubkey, unsigned int* output_len)
 {
-	bool bFound = false;
-	U8* msg_raw;
-	U32 len_raw = 0;
 	char* msg_b64 = NULL;
 	U32  len_b64 = 0;
-	U32  crc32;
 	sqlite3 *db;
 	U8 hexPK[67] = { 0 };
 
@@ -1002,28 +998,84 @@ static char* wt_Process_A_Message(char* primarykey, char* head, char* pubkey, un
 		sqlite3_stmt* stmt = NULL;
 		char sql[128] = { 0 };
 		sprintf(sql, "SELECT vv,us FROM p WHERE pk='%s'",	hexPK);
-		fprintf(stdout, "DB is opened!:%s\n", sql);
+		//fprintf(stdout, "DB is opened!:%s\n", sql);
 		rc = sqlite3_prepare_v2(db, (const char*)sql, -1, &stmt, NULL); 
 		if (rc == SQLITE_OK)
 		{
-			fprintf(stdout, "sqlite3_prepare_v2 : %d\n", rc);
+			//fprintf(stdout, "sqlite3_prepare_v2 : %d\n", rc);
 			rc = sqlite3_step(stmt);
 			if (rc == SQLITE_ROW)  // we find this record in the backend database, so we will send to the user
 			{
 				U32 version  = (U32)sqlite3_column_int(stmt, 0);
 				U8* blob     = (U8*)sqlite3_column_blob(stmt, 1);
 				U32 blob_len = (U32)sqlite3_column_bytes(stmt, 1);
-				
-				fprintf(stdout, "Get PK: %d / %u - %s\n", rc, blob_len, hexPK);
-
+				//fprintf(stdout, "Get PK: %d / %u - %s\n", rc, blob_len, hexPK);
 				if(blob_len == 3 + 1 + 4 + WT_NAME_MAX_LEN + WT_MOTTO_MAX_LEN + WT_AREA_MAX_LEN + WT_LARGE_ICON_SIZE)
 				{
+					//fprintf(stdout, "BLOB is good!\n");
+					U8* msg_raw;
+					U32 i, crc32, len_raw = blob_len + 4 + 33 + 76;
+					U8 newhead[89];
+					for(i=0; i<44; i++) newhead[i] = head[44 + i];
+					for(i=0; i<44; i++) newhead[44 + i] = head[i];
+					newhead[88] = '@';
+					crc32 = wt_GenCRC32(newhead, 89);
+					msg_raw = (U8*)malloc(len_raw);
+					if(msg_raw)
+					{
+						mbedtls_chacha20_context chacha_ctx = { 0 };
+						mbedtls_sha256_context ctx = { 0 };
+						AES256_ctx ctxAES = { 0 };
+						U8 hash[32] = { 0 };
+						U8 Ks[32] = { 0 };
+						U8 nonce[12] = { 0 };
+
+						U32* p32 = (U32*)(msg_raw + 76);
+						*p32 = version;
+						U8* p = msg_raw + 76 + 4;
+						for(i=0; i<33; i++) p[i] = pubkey[i];
+						p = msg_raw + 76 + 4 + 33;
+						for(i=0; i<blob_len; i++) p[i] = blob[i];
+
+						mbedtls_sha256_init(&ctx);
+						mbedtls_sha256_starts(&ctx, 0);
+						mbedtls_sha256_update(&ctx, msg_raw + 76, 4 + 33 + blob_len);
+						mbedtls_sha256_finish(&ctx, hash);
+
+						wt_GenerateRandomeData(Ks, 32);
+						wt_AES256_init(&ctxAES, primarykey);
+						wt_AES256_encrypt(&ctxAES, 2, msg_raw, Ks);
+						wt_AES256_encrypt(&ctxAES, 2, msg_raw + 32, hash);
+
+						U32 crc32Hash = wt_GenCRC32(msg_raw + 32, 32);
+						msg_raw[64] = 1; msg_raw[65] = 'F'; msg_raw[66] = 0; msg_raw[67] = 'X';
+						p32 = (U32*)(msg_raw + 68); *p32 = blob_len + 4 + 33;
+						p32 = (U32*)(msg_raw + 72); *p32 = crc32;
+						U8* q = (U8*)&crc32Hash;
+						p = msg_raw; for (i = 0; i < 12; i++) p[64 + i] ^= q[i % 4];
+
+						for (i = 0; i < 12; i++) nonce[i] = i;
+						mbedtls_chacha20_init(&chacha_ctx);
+						mbedtls_chacha20_setkey(&chacha_ctx, Ks);
+						mbedtls_chacha20_starts(&chacha_ctx, nonce, 0);
+						mbedtls_chacha20_update(&chacha_ctx, len_raw - 32, (const unsigned char *)(msg_raw+32), msg_raw+32);
+						mbedtls_chacha20_free(&chacha_ctx);
+
+						len_b64 = wt_b64_enc_len(len_raw);
+						msg_b64 = malloc(89 + len_b64);
+						if(msg_b64)
+						{
+							for(i=0; i<89; i++) msg_b64[i] = newhead[i];
+							wt_b64_encode((const char*)msg_raw, len_raw, (char*)(msg_b64 + 89), len_b64);
+							if(output_len) *output_len = 89 + len_b64;
+						}
+						free(msg_raw);
+					}
 				}
 			}
-			else fprintf(stdout, "No PK: %d - %s\n", rc, hexPK); 
 			sqlite3_finalize(stmt);
 		}
-		else fprintf(stdout, "sqlite3_prepare_v2 : %d\n", rc);
+		//else fprintf(stdout, "sqlite3_prepare_v2 : %d\n", rc);
 		sqlite3_close(db);
 	}
 	else fprintf(stdout, "DB is NOT opened!\n");
@@ -1112,16 +1164,13 @@ static char* wt_Process_Q_Message(char* primarykey, char* head, char* pubkey, un
 	return message_b64;
 }
 
-static unsigned char wt_SecretKey [32] = {
-	0xE2,0x17,0xA7,0xFC,0xEA,0x47,0x0D,0xDD,
-	0xFF,0x22,0x61,0xA4,0x85,0x4A,0x46,0x2F,
-	0xE7,0xB6,0xB1,0x0D,0x01,0x14,0x15,0xA5,
-	0x00,0xA9,0x7C,0xC9,0xB8,0x0F,0x29,0x89
-};
-
 static unsigned int g_count = 0;
 
-static char* wt_Process_U_Message(char* primarykey, char* head, U8* message, U8 length, unsigned int* output_len)
+unsigned char* wt_GetSecretKey();
+
+char* wt_GetClientId();
+
+static char* wt_Process_U_Message(char* primarykey, char* head, U8* message, U32 length, unsigned int* output_len)
 {
 	int i;
 	bool beGood = false;
@@ -1148,7 +1197,7 @@ static char* wt_Process_U_Message(char* primarykey, char* head, U8* message, U8 
 		p = message + 4 + 33;
 		U32 blob_len = length - 4 - 33;
 		sprintf(sql, "INSERT INTO p(vv,pk,us) VALUES(%u,'%s',(?))",	version, hexPK);
-		//fprintf(stdout, "SQL: %s\n", sql);
+		//fprintf(stdout, "SQL: %s (%u\n", sql, blob_len);
 		rc = sqlite3_prepare_v2(db, (const char*)sql, -1, &stmt, NULL); 
 		if(rc == SQLITE_OK)
 		{
@@ -1211,14 +1260,13 @@ static char* wt_Process_U_Message(char* primarykey, char* head, U8* message, U8 
 	return message_b64;
 }
 
-#define UT_MIN_PACKET_SIZE	248
 static char* wt_Process_T_Message(char* primarykey, char* head, U8* message, U32 length, unsigned int* output_len)
 {
 	U32 i, crc32, length_b64;
 	char* msssage_b64 = NULL;
 	char* msg_raw = NULL;
 	U8 offset = 0;
-	U32 len_org = length + 10;
+	U32 len_org = length + 12;
 	U32 length_raw;
 	U8 newhead[89];
 
@@ -1249,15 +1297,14 @@ static char* wt_Process_T_Message(char* primarykey, char* head, U8* message, U32
 		AES256_ctx ctxAES = { 0 };
 		U8 hash[32] = { 0 };
 		U8 Ks[32] = { 0 };
-		U8 mask[8] = { 0 };
 		U8 nonce[12] = { 0 };
 		
 		wt_GenerateRandomeData(msg_raw + 76, length_raw - 76); // fill the random data
 
 		U8* p = msg_raw + 76 + 4;
-		p[0] = 0xE5; p[1] = 0xB7; p[2] = 0xB2; p[3] = 0xE8; p[4] = 0x8E; 
-		p[5] = 0xB7; p[6] = 0xE6; p[7] = 0x82; p[8] = 0x89; p[9] = '\n'; 
-		p += 10;
+		p[0] = 0xE5; p[1] = 0xB7; p[2] = 0xB2; p[3] = 0xE8; p[4] = 0x8E; p[5] = 0xB7; 
+		p[6] = 0xE6; p[7] = 0x82; p[8] = 0x89; p[9] = ':';  p[10] = '\n'; p[11] = '\n'; 
+		p += 12;
 		memcpy(p, message + 4, length - 4);
 
 		mbedtls_sha256_init(&ctx);
@@ -1317,13 +1364,15 @@ static char* wt_GetRobotResponse(char* message, unsigned int length, U32* output
 	if((r0 != 33) || (r1 != 33) || (pks[0] != 0x02 && pks[0] != 0x03) || (pkr[0] != 0x02 && pkr[0] != 0x03))
 		return NULL;
 
-	if(wt_GenPublicKeyFromSecretKey(wt_SecretKey, PubKey) != WT_OK)
+	U8* secretKEY = wt_GetSecretKey();
+
+	if(wt_GenPublicKeyFromSecretKey(secretKEY, PubKey) != WT_OK)
 		return NULL;
 
 	if(memcmp(pkr, PubKey, 33)) /* this message is not send to me */
 		return NULL;
 
-	if(GetKeyFromSecretKeyAndPlubicKey(wt_SecretKey, pks, Kp) != WT_OK)
+	if(GetKeyFromSecretKeyAndPlubicKey(secretKEY, pks, Kp) != WT_OK)
 		return NULL;
 
 	for (U8 i = 0; i < 12; i++) nonce[i] = i;
@@ -1333,7 +1382,6 @@ static char* wt_GetRobotResponse(char* message, unsigned int length, U32* output
 		U8 msg_raw[32 + 1 + 33 + 4 + 32] = { 0 };
 		U8 msg_len = 32 + 1 + 33 + 4 + 32;
 
-		fprintf(stdout, "Get A or Q Message...................\n");
 		if(wt_b64_decode(message + 89, 136, msg_raw, msg_len) == msg_len)
 		{
 			U8 hash0[32];
@@ -1371,7 +1419,7 @@ static char* wt_GetRobotResponse(char* message, unsigned int length, U32* output
 
 			if(msg_raw[32] == 'A' && (msg_raw[33] == 0x02 || msg_raw[33] == 0x03))
 			{
-				fprintf(stdout, "Get A Message and CRC32 and hash are good!\n");
+				//fprintf(stdout, "Get A Message and CRC32 and hash are good!\n");
 				U32 crc32 = wt_GenCRC32(message, 89);
 				if(memcmp(&crc32, msg_raw + 32 + 1 + 33, 4) == 0 && memcmp(hash0, hash1, 32) == 0)
 				{
@@ -1488,6 +1536,8 @@ static void wt_ProcessMessage(struct mosq_config *cfg, char* message, unsigned i
 	b64_msg = wt_GetRobotResponse(message, len, &b64_len, &sendType);
 	if(b64_msg && b64_len > 0)
 	{
+		char* clientId = wt_GetClientId();
+
 		FILE* fp = fopen("mqtt.txt", "a");
 		if(fp)
 		{
@@ -1499,8 +1549,9 @@ static void wt_ProcessMessage(struct mosq_config *cfg, char* message, unsigned i
 
 		if(sendType == 'M')
 		{
-			sprintf(send_cmd, "mosquitto_pub -q 1 -h %s -p %d -t %s -m \"%s\"",cfg->host, port, topic, b64_msg);
-			//fprintf(stdout, "mosquitto_pub -h %s -p %d -t %s -m \"%s\"",cfg->host, port, topic, b64_msg);
+			sprintf(send_cmd, "mosquitto_pub -q 1 -c -i %s -h %s -p %d -t %s -m \"%s\"",
+				clientId, cfg->host, port, topic, b64_msg);
+			//fprintf(stdout, "CMD: %s\n", send_cmd);
 			system(send_cmd);
 		}
 		else if(sendType == 'F')
@@ -1528,9 +1579,10 @@ static void wt_ProcessMessage(struct mosq_config *cfg, char* message, unsigned i
 				bool bRet = false;
 				if(EOF != fputs((const char*)b64_msg, fp))
 				{
-					sprintf(send_cmd, "mosquitto_pub -q 1 -h %s -p %d -t %s -f %s",cfg->host, port, topic, filename);
+					sprintf(send_cmd, "mosquitto_pub -q 1 -c -i %s -h %s -p %d -t %s -f %s",
+						clientId, cfg->host, port, topic, filename);
 					bRet = true;
-					//fprintf(stdout, "mosquitto_pub -h %s -p %d -t %s -f %s\n",cfg->host, port, topic, filename);
+					//fprintf(stdout, "CMD: %s\n", send_cmd);
 				}
 				fclose(fp);
 				if(bRet)
@@ -1557,6 +1609,7 @@ void print_message(struct mosq_config *lcfg, const struct mosquitto_message *mes
 		if(33 == r0 && 33 == r1)
 		{
 			char* buf = NULL;
+
 			FILE* fp = fopen("mqtt.txt", "a");
 			if(fp)
 			{

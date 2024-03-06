@@ -37,6 +37,7 @@ Contributors:
 #include <mqtt_protocol.h>
 #include "client_shared.h"
 #include "sub_client_output.h"
+#include "mbedtls/sha256.h"
 #include "sqlite3.h"
 
 struct mosq_config cfg;
@@ -350,6 +351,41 @@ static int CheckDatabase()
 	return 0;
 }
 
+static unsigned char wt_SecretKey [32] = {
+	0xE2,0x17,0xA7,0xFC,0xEA,0x47,0x0D,0xDD,
+	0xFF,0x22,0x61,0xA4,0x85,0x4A,0x46,0x2F,
+	0xE7,0xB6,0xB1,0x0D,0x01,0x14,0x15,0xA5,
+	0x00,0xA9,0x7C,0xC9,0xB8,0x0F,0x29,0x89
+};
+
+static char wtrobot_clientid[23] = {0};
+
+unsigned char* wt_GetSecretKey() { return wt_SecretKey; }
+char* wt_GetClientId() { return wtrobot_clientid; }
+
+void GenerateClientId()
+{
+	unsigned char hashx[32];
+	unsigned char idx, i;
+	const unsigned char* hex_chars = (const unsigned char*)"0123456789ABCDEF";
+
+	mbedtls_sha256_context ctx = { 0 };
+	mbedtls_sha256_init(&ctx);
+	mbedtls_sha256_starts(&ctx, 0);
+	mbedtls_sha256_update(&ctx, wt_SecretKey, 32);
+	mbedtls_sha256_finish(&ctx, hashx);
+
+	for (i = 0; i < 11; i++)
+	{
+		idx = ((hashx[i + 9] >> 4) & 0x0F);
+		wtrobot_clientid[(i << 1)] = hex_chars[idx];
+
+		idx = (hashx[i + 9] & 0x0F);
+		wtrobot_clientid[(i << 1) + 1] = hex_chars[idx];
+	}
+	//fprintf(stdout, "ClientID: %s\n", wtrobot_clientid);
+}
+
 int main(int argc, char *argv[])
 {
 	int rc;
@@ -357,8 +393,11 @@ int main(int argc, char *argv[])
 		struct sigaction sigact;
 #endif
 
-    signal(SIGCHLD, SIG_IGN);
-    CheckDatabase();
+   signal(SIGCHLD, SIG_IGN);
+
+   CheckDatabase();
+
+	GenerateClientId();
 
 	mosquitto_lib_init();
 
