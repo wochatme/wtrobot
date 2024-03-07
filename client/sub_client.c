@@ -332,7 +332,7 @@ static int CheckDatabase()
 		if (SQLITE_OK != rc)
 		{
 			rc = sqlite3_prepare_v2(db,	
-				(const char*)"CREATE TABLE p(id INTEGER PRIMARY KEY AUTOINCREMENT,dt INTEGER,vv INTEGER,pk CHAR(66) NOT NULL UNIQUE,us BLOB)", 
+				(const char*)"CREATE TABLE p(pk CHAR(66) PRIMARY KEY,dt INTEGER,vv INTEGER,ub BLOB)", 
 				-1, &stmt, NULL);
 			if (SQLITE_OK == rc)
 			{
