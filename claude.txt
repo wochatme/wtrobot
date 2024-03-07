@@ -12,6 +12,90 @@ eSQL client or the psql terminal.\n   - Execute the following SQL query:\n     `
 ASK:[[[{"model": "claude-3-opus-20240229","max_tokens": 1024,"messages": [{"role": "user", "content": "How to upgrade a PostgreSQL database from 9.6 to 16.2?"}]}]]]
 CLAUDE[1-2776-2776]:
 [[[
-{"id":"msg_011HVGUZWBKzM1dwBEZQf6dG","type":"message","role":"assistant","content":[{"type":"text","text":"To upgrade a PostgreSQL database from version 9.6 to 16.2, you can follow these steps:\n\n1. Backup your existing database:\n   - Make sure to create a full backup of your PostgreSQL 9.6 database before proceeding with the upgrade.\n\n2. Stop the PostgreSQL 9.6 server:\n   - Stop the PostgreSQL 9.6 service or daemon to ensure no clients are connected during the upgrade process.\n\n3. Install PostgreSQL 16.2:\n   - Download and install PostgreSQL 16.2 on your system. Make sure to install it in a different directory than your existing PostgreSQL 9.6 installation.\n\n4. Initialize a new PostgreSQL 16.2 database cluster:\n   - Use the `initdb` command provided by PostgreSQL 16.2 to initialize a new database cluster. For example:\n     ```\n     /path/to/postgresql-16.2/bin/initdb -D /path/to/new/data/directory\n     ```\n\n5. Stop the PostgreSQL 16.2 server:\n   - After initializing the new cluster, stop the PostgreSQL 16.2 server.\n\n6. Migrate the data:\n   - Use the `pg_upgrade` utility to migrate the data from your PostgreSQL 9.6 installation to the new PostgreSQL 16.2 installation. For example:\n     ```\n     /path/to/postgresql-16.2/bin/pg_upgrade \\\n       --old-datadir=/path/to/old/data/directory \\\n       --new-datadir=/path/to/new/data/directory \\\n       --old-bindir=/path/to/postgresql-9.6/bin \\\n       --new-bindir=/path/to/postgresql-16.2/bin \\\n       --link\n     ```\n\n7. Start the PostgreSQL 16.2 server:\n   - Start the PostgreSQL 16.2 server using the new data directory.\n\n8. Verify the upgrade:\n   - Connect to the upgraded database using a PostgreSQL client (e.g., `psql`) and verify that your data and objects have been migrated successfully.\n\n9. Post-upgrade tasks:\n   - Perform any necessary post-upgrade tasks, such as updating database configuration settings, extensions, or application connections to use the new PostgreSQL 16.2 installation.\n\n10. Clean up:\n    - Once you have verified the upgrade and everything is working correctly, you can remove the old PostgreSQL 9.6 installation and any temporary files created during the upgrade process.\n\nNote: Before performing the upgrade, it's highly recommended to thoroughly test the upgrade process in a non-production environment and ensure compatibility with your applications and any third-party extensions you may be using.\n\nIt's also important to review the PostgreSQL documentation for the specific versions you are upgrading from and to, as there may be version-specific considerations and additional steps required."}],"model":"claude-3-opus-20240229","stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":26,"output_tokens":663}}♦
+{"id":"msg_011HVGUZWBKzM1dwBEZQf6dG","type":"message","role":"assistant","content":[{"type":"text","text":"To upgrade a PostgreSQL database from version 9.6 to 16.2, you can follow these steps:\n\n1. Backup your existing database:\n   - Make sure to create a full backup of your PostgreSQL 9.6 database before proceeding with the upgrade.\n\n2. Stop the PostgreSQL 9.6 server:\n   - Stop the PostgreSQL 9.6 service or daemon to ensure no clients are connected during the upgrade process.\n\n3. Install PostgreSQL 16.2:\n   - Download and install PostgreSQL 16.2 on your system. Make sure to install it in a different directory than your existing PostgreSQL 9.6 installation.\n\n4. Initialize a new PostgreSQL 16.2 database cluster:\n   - Use the `initdb` command provided by PostgreSQL 16.2 to initialize a new database cluster. For example:\n     ```\n     /path/to/postgresql-16.2/bin/initdb -D /path/to/new/data/directory\n     ```\n\n5. Stop the PostgreSQL 16.2 server:\n   - After initializing the new cluster, stop the PostgreSQL 16.2 server.\n\n6. Migrate the data:\n   - Use the `pg_upgrade` utility to migrate the data from your PostgreSQL 9.6 installation to the new PostgreSQL 16.2 installation. For example:\n     ```\n     /path/to/postgresql-16.2/bin/pg_upgrade \\\n       --old-datadir=/path/to/old/data/directory \\\n       --new-datadir=/path/to/new/data/directory \\\n       --old-bindir=/path/to/postgresql-9.6/bin \\\n       --new-bindir=/path/to/postgresql-16.2/bin \\\n       --link\n     ```\n\n7. Start the PostgreSQL 16.2 server:\n   - Start the PostgreSQL 16.2 server using the new data directory.\n\n8. Verify the upgrade:\n   - Connect to the upgraded database using a PostgreSQL client (e.g., `psql`) and verify that your data and objects have been migrated successfully.\n\n9. Post-upgrade tasks:\n   - Perform any necessary post-upgrade tasks, such as updating database configuration settings, extensions, or application connections to use the new PostgreSQL 16.2 installation.\n\n10. Clean up:\n    - Once you have verified the upgrade and everything is working correctly, you can remove the old PostgreSQL 9.6 installation and any temporary files created during the upgrade process.\n\nNote: Before performing the upgrade, it's highly recommended to thoroughly test the upgrade process in a non-production environment and ensure compatibility with your applications and any third-party extensions you may be using.\n\nIt's also important to review the PostgreSQL documentation for the specific versions you are upgrading from and to, as there may be version-specific considerations and additional steps required."}],"model":"claude-3-opus-20240229","stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":26,"output_tokens":663}}
 ]]]
 
+ASK:[[[{"model": "claude-1.3","max_tokens": 1024,"messages": [{"role": "user", "content": "How to write hello word in C?"}]}]]]
+CLAUDE[1-715-715]:
+[[[
+{"id":"msg_01JD7CdRoZgXuY4Bd1CKbxcg","type":"message","role":"assistant","content":[{"type":"text","text":"Here is a simple C program that prints \"Hello World\":\n\n```c\n#include <stdio.h>\n\nint main() {\n    printf(\"Hello World!\\n\");\n}\n```\n\nThis program:\n\n1. Includes the stdio.h header file which contains declarations for input/output functions like printf \n2. Defines a main function which is the entry point for the program\n3. Uses printf to print the string \"Hello World!\" followed by a newline\n\nSo this simple program prints the text \"Hello World!\" and then a new line."}],"model":"claude-1.3","stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":17,"output_tokens":125}}
+]]]
+
+#include <stdio.h>
+#include <curl/curl.h>
+
+/*
+
+cl /c https.c /Ic:/vcpkg/packages/curl_x64-windows-static/include
+
+link https.obj libcurl.lib zlib.lib crypt32.lib Advapi32.lib ws2_32.lib Wldap32.Lib
+
+curl https://api.anthropic.com/v1/messages \
+     --header "x-api-key: $ANTHROPIC_API_KEY" \
+     --header "anthropic-version: 2023-06-01" \
+     --header "content-type: application/json" \
+     --data \
+'{"model": "claude-3-opus-20240229","max_tokens": 1024,"messages": [{"role": "user", "content": "How to list all schemas in a PostgreSQL database?"}]'
+
+'{"model": "claude-3-haiku-20240229","max_tokens": 1024,"messages": [{"role": "user", "content": "How to list all schemas in a PostgreSQL database?"}]'
+
+*/
+
+/* Write callback function to handle the data received from the server */
+size_t write_callback(char *ptr, size_t size, size_t nmemb, void *userdata) 
+{
+    size_t realsize = size * nmemb;
+
+    printf("CLAUDE[%d-%d-%d]:\n[[[\n%s\n]]]\n", (int)size, (int)nmemb, (int)realsize, ptr);
+
+    return realsize;
+}
+
+int main(int argc, char* argv[]) 
+{
+    CURL *curl;
+    CURLcode res;
+    char *payload = "{\"model\": \"claude-1.3\",\"max_tokens\": 1024,\"messages\": [{\"role\": \"user\", \"content\": \"How to write hello word in C?\"}]}";
+
+    struct curl_slist *headers = NULL;
+    /* Initialize curl */
+    curl_global_init(CURL_GLOBAL_ALL);
+    curl = curl_easy_init();
+    if (!curl) 
+    {
+        printf("Failed to initialize curl\n");
+        return 1;
+    }
+
+    printf("ASK:[[[%s]]]\n", payload);
+    /* Set the URL to fetch */
+    curl_easy_setopt(curl, CURLOPT_URL, "https://api.anthropic.com/v1/messages");
+    
+    headers = curl_slist_append(headers, "x-api-key: sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx");
+    headers = curl_slist_append(headers, "anthropic-version: 2023-06-01");
+    headers = curl_slist_append(headers, "content-type: application/json");
+    
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, *headers);
+    curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, payload);
+    /* Enable SSL for HTTPS requests */
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+
+    /* Set the callback function to handle the received data */
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+
+    /* Perform the request */
+    res = curl_easy_perform(curl);
+
+    /* Check for errors */
+    if (res != CURLE_OK) 
+    {
+        fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+    }
+
+    /* Clean up */
+    curl_easy_cleanup(curl);
+
+    return 0;
+}
