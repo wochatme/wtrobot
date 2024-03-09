@@ -1453,7 +1453,7 @@ static char* wt_GetRobotResponse(char* message, unsigned int length, U32* output
 			}
 		}
 	}
-	else if (msg_type == '@' && length >= 521)
+	else if ((msg_type == '@' || msg_type == '^') && length >= 521)
 	{
 		U8 hash0[32];
 		U8 hash1[32];
